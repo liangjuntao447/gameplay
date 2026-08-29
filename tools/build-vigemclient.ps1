@@ -84,16 +84,21 @@ $srcs = Get-ChildItem $SourceDir -Recurse -Filter '*.cpp' -ErrorAction SilentlyC
 Write-Host "Source files: $($srcs.Count)"
 $srcs | ForEach-Object { Write-Host "  $_" }
 
-$incs = @("/I`"$SourceDir`"")
-if (Test-Path $buildDir) { $incs += "/I`"$buildDir`"" }
+# include dirs: source root + CMake build dir + every folder containing .h
+$incs = @()
+$incs += "/I$SourceDir"
+if (Test-Path $buildDir) { $incs += "/I$buildDir" }
 Get-ChildItem $SourceDir -Recurse -Directory -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -notmatch '\\build' -and (Get-ChildItem $_.FullName -Filter '*.h' -File -ErrorAction SilentlyContinue).Count -gt 0 } |
-    ForEach-Object { $incs += "/I`"$($_.FullName)`"" }
+    ForEach-Object { $incs += "/I$($_.FullName)" }
 
+# Build the cl.exe argument list. IMPORTANT: pass paths RAW (no manual quotes) -
+# PowerShell quotes arguments containing spaces automatically when splatting,
+# and manual quotes become part of the filename (cl.exe rejects them).
 $clArgs = @('/nologo', '/O2', '/EHsc', '/LD', '/DUNICODE', '/D_UNICODE', '/DVIGEMCLIENT_EXPORTS')
 $clArgs += $incs
-foreach ($s in $srcs) { $clArgs += "`"$s`"" }
-$clArgs += '/link', "/DEF:`"$defFile`"", "/OUT:`"$out`""
+foreach ($s in $srcs) { $clArgs += $s }
+$clArgs += '/link', 'setupapi.lib', "/DEF:$defFile", "/OUT:$out"
 try {
     & $cl.Source @clArgs 2>&1 | ForEach-Object { Write-Host "  $_" }
 } catch { Write-Host "cl.exe invoke failed: $($_.Exception.Message)" }
