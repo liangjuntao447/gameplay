@@ -13,3 +13,8 @@ build/
 # OS / editor junk
 Thumbs.db
 .DS_Store
+
+# release packaging artifacts
+*.zip
+TouchCloudPad-release/
+
