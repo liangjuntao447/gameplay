@@ -25,9 +25,9 @@ namespace TouchCloudPad
     {
         // logical (pre-scale) design size; Viewbox scales it to the window
         private const double BASE_W = 520;
-        private const double BASE_H = 400;
+        private const double BASE_H = 460;
         private const double BODY_W = 496;   // BASE_W - 2*12 margin
-        private const double BODY_H = 300;
+        private const double BODY_H = 360;
 
         private Config _cfg;
         private SkinDef _skin;
@@ -52,6 +52,7 @@ namespace TouchCloudPad
 
         // ---- runtime state ----
         private Dictionary<long, ActivePointer> _pointers = new Dictionary<long, ActivePointer>();
+        private HashSet<int> _downKeys = new HashSet<int>();
         private bool _layoutEdit;
 
         private class ActivePointer
@@ -634,8 +635,8 @@ namespace TouchCloudPad
             ptr.Last = p;
             if (!GamepadActive()) return;
 
-            double sens = _cfg.CameraSensitivity;
-            if (sens <= 0) sens = 120;
+            double sens = _cfg.CameraSensitivity * 0.35;
+            if (sens <= 0) sens = 9;
             double rx = Math.Max(-1, Math.Min(1, dx / sens));
             double ry = Math.Max(-1, Math.Min(1, dy / sens));
             _gamepad.SetStick(true, (short)(rx * 32767), (short)(-ry * 32767));
@@ -694,12 +695,28 @@ namespace TouchCloudPad
         {
             var bdef = _skin.Buttons.Find(x => x.Id == id);
             if (bdef == null) return;
-            string pad = _skinSet.Buttons[id];
+            string binding = _skinSet.Buttons[id];
+
+            // keyboard-key buttons (e.g. Esc) work regardless of gamepad
+            int vk = KeyMap.TryGet(binding);
+            if (vk >= 0)
+            {
+                if (press)
+                {
+                    if (_downKeys.Add(vk)) Input.KeyDown((ushort)vk);
+                }
+                else
+                {
+                    if (_downKeys.Remove(vk)) Input.KeyUp((ushort)vk);
+                }
+                return;
+            }
+
             if (!GamepadActive()) return;
-            if (Pad.IsTrigger(pad))
-                _gamepad.SetTrigger(Pad.IsRightTrigger(pad), press);
+            if (Pad.IsTrigger(binding))
+                _gamepad.SetTrigger(Pad.IsRightTrigger(binding), press);
             else
-                _gamepad.SetButton(Pad.Bit(pad), press);
+                _gamepad.SetButton(Pad.Bit(binding), press);
             _gamepad.Update();
         }
 

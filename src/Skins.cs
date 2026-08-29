@@ -8,7 +8,8 @@ namespace TouchCloudPad
     {
         public string Id;      // stable id used for config overrides
         public string Label;   // text shown on the button
-        public string Pad;     // gamepad button name (e.g. "A", "X", "LB", "LT")
+        public string Pad;     // gamepad button name (e.g. "A", "X", "LB", "LT") — used if Key is empty
+        public string Key;     // keyboard key name (e.g. "Esc") — if set, sends a keyboard key instead of a pad
         public bool Hold;      // true = hold while touched (dodge/attack/trigger)
     }
 
@@ -39,6 +40,7 @@ namespace TouchCloudPad
             WuWaves(),
             StarRail(),
             Zenless(),
+            Generic(),
         };
 
         public static SkinDef ById(string id)
@@ -70,6 +72,7 @@ namespace TouchCloudPad
                     new ButtonDef { Id="char1",    Label="1",  Pad="DPad_Left",  Hold=false },
                     new ButtonDef { Id="char2",    Label="2",  Pad="DPad_Up",    Hold=false },
                     new ButtonDef { Id="char3",    Label="3",  Pad="DPad_Right", Hold=false },
+                    new ButtonDef { Id="esc",      Label="Esc", Key="Esc",       Hold=false },
                 }
             };
         }
@@ -92,6 +95,7 @@ namespace TouchCloudPad
                     new ButtonDef { Id="map",      Label="图",   Pad="Y",        Hold=false },
                     new ButtonDef { Id="menu",     Label="菜单", Pad="Start",    Hold=false },
                     new ButtonDef { Id="camera",   Label="镜",   Pad="Back",     Hold=false },
+                    new ButtonDef { Id="esc",      Label="Esc",  Key="Esc",      Hold=false },
                 }
             };
         }
@@ -114,6 +118,33 @@ namespace TouchCloudPad
                     new ButtonDef { Id="chain",   Label="连", Pad="B",    Hold=false },
                     new ButtonDef { Id="interact",Label="交", Pad="A",    Hold=false },
                     new ButtonDef { Id="switch",  Label="切", Pad="DPad_Up", Hold=false },
+                    new ButtonDef { Id="esc",     Label="Esc", Key="Esc",  Hold=false },
+                }
+            };
+        }
+
+        /// <summary>通用手柄 (generic gamepad) — a standard layout, useful as a backup.</summary>
+        private static SkinDef Generic()
+        {
+            return new SkinDef
+            {
+                Id = "generic",
+                Name = "通用手柄",
+                Accent = "#FF6FC3FF",        // blue accent
+                ShowCameraPad = true,
+                Buttons = new List<ButtonDef>
+                {
+                    new ButtonDef { Id="a",      Label="A", Pad="A",       Hold=false },
+                    new ButtonDef { Id="b",      Label="B", Pad="B",       Hold=false },
+                    new ButtonDef { Id="x",      Label="X", Pad="X",       Hold=false },
+                    new ButtonDef { Id="y",      Label="Y", Pad="Y",       Hold=false },
+                    new ButtonDef { Id="lb",     Label="LB",Pad="LB",      Hold=false },
+                    new ButtonDef { Id="rb",     Label="RB",Pad="RB",      Hold=false },
+                    new ButtonDef { Id="lt",     Label="LT",Pad="LT",      Hold=true  },
+                    new ButtonDef { Id="rt",     Label="RT",Pad="RT",      Hold=true  },
+                    new ButtonDef { Id="start",  Label="开",Pad="Start",   Hold=false },
+                    new ButtonDef { Id="back",   Label="选",Pad="Back",    Hold=false },
+                    new ButtonDef { Id="esc",    Label="Esc",Key="Esc",    Hold=false },
                 }
             };
         }
@@ -122,14 +153,16 @@ namespace TouchCloudPad
         public static SkinSettings Effective(SkinDef skin, Config cfg)
         {
             var s = new SkinSettings();
-            foreach (var b in skin.Buttons) s.Buttons[b.Id] = b.Pad;
+            foreach (var b in skin.Buttons)
+                s.Buttons[b.Id] = string.IsNullOrEmpty(b.Key) ? b.Pad : b.Key;
 
             if (cfg.Skins != null && cfg.Skins.ContainsKey(skin.Id))
             {
                 var o = cfg.Skins[skin.Id];
                 if (o.Buttons != null)
                     foreach (var b in skin.Buttons)
-                        if (o.Buttons.ContainsKey(b.Id) && Pad.Known(o.Buttons[b.Id]))
+                        if (o.Buttons.ContainsKey(b.Id) &&
+                            (Pad.Known(o.Buttons[b.Id]) || KeyMap.Known(o.Buttons[b.Id])))
                             s.Buttons[b.Id] = o.Buttons[b.Id];
             }
             return s;

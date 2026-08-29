@@ -191,7 +191,7 @@ namespace TouchCloudPad
 
             var hint = new TextBlock
             {
-                Text = "左摇杆=移动，右视角区=右摇杆(转视角)。每个动作按钮对应一个 Xbox 手柄按键：A/B/X/Y、LB/RB(肩键)、LT/RT(扳机)、Start/Back、L3/R3、十字键。",
+                Text = "左摇杆=移动，右视角区=右摇杆(转视角)。每个动作按钮可绑定一个 Xbox 手柄按键（A/B/X/Y、LB/RB、LT/RT、Start/Back、十字键）或一个键盘按键（Esc/Space/F1-F12 等）。",
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)),
                 FontSize = 11,
@@ -216,13 +216,19 @@ namespace TouchCloudPad
             var set = Skins.Effective(skin, _cfg);
             _padRows = new Dictionary<string, ComboBox>();
 
+            // combined choices: gamepad pads + keyboard keys
+            var choices = new List<string>();
+            choices.AddRange(Pad.Names);
+            choices.AddRange(KeyMap.Names);
+
             foreach (var b in skin.Buttons)
             {
-                string cur = set.Buttons.ContainsKey(b.Id) ? set.Buttons[b.Id] : b.Pad;
+                string cur = set.Buttons.ContainsKey(b.Id) ? set.Buttons[b.Id] : (string.IsNullOrEmpty(b.Key) ? b.Pad : b.Key);
                 var combo = new ComboBox { Width = 110, VerticalContentAlignment = VerticalAlignment.Center };
-                foreach (var n in Pad.Names) combo.Items.Add(n);
+                foreach (var n in choices) combo.Items.Add(n);
                 int si = 0;
-                for (int i = 0; i < Pad.Names.Length; i++) if (string.Equals(Pad.Names[i], cur, StringComparison.OrdinalIgnoreCase)) { si = i; break; }
+                for (int i = 0; i < choices.Count; i++)
+                    if (string.Equals(choices[i], cur, StringComparison.OrdinalIgnoreCase)) { si = i; break; }
                 combo.SelectedIndex = si;
                 _padRows[b.Id] = combo;
 
