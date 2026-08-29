@@ -1,8 +1,8 @@
 name: Build
 
-# - Every push: fast "can it compile" check (builds TouchCloudPad.exe only).
-# - Pushing a tag v* (or manual run): full build (compiles ViGEmClient.dll from
-#   source, builds the app, downloads the ViGEmBus driver) + GitHub Release.
+# Runs on EVERY push: compiles ViGEmClient.dll from source + builds the app,
+# and uploads the finished package as an artifact. Only the "Publish GitHub
+# Release" step is gated to version tags (v*); everything else runs on any push.
 on:
   push:
   workflow_dispatch:
@@ -11,35 +11,12 @@ permissions:
   contents: write
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Fast compile check on every push
-  # ---------------------------------------------------------------------------
-  build-check:
-    name: Compile check (TouchCloudPad.exe)
+  build:
+    name: Build (ViGEmClient + app)
     runs-on: windows-2022
-    if: github.event_name == 'push' && github.ref_type != 'tag'
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Build TouchCloudPad.exe
-        shell: cmd
-        run: build.bat
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: TouchCloudPad-check
-          path: TouchCloudPad.exe
-
-  # ---------------------------------------------------------------------------
-  # Full build + release (tags or manual dispatch)
-  # ---------------------------------------------------------------------------
-  release:
-    name: Full build & release
-    runs-on: windows-2022
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/checkout@v4
+      - name: Checkout project
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
@@ -54,7 +31,7 @@ jobs:
           repository: nefarius/ViGEmClient
           path: third_party/ViGEmClient
 
-      # 1) Compile the OFFICIAL ViGEmClient.dll from source
+      # 1) Compile the OFFICIAL ViGEmClient.dll from source (this is your ps1)
       - name: Build ViGEmClient.dll from source
         shell: pwsh
         run: .\tools\build-vigemclient.ps1 -OutDir (Get-Location) -SourceDir "$env:GITHUB_WORKSPACE\third_party\ViGEmClient"
@@ -64,7 +41,7 @@ jobs:
         shell: cmd
         run: build.bat
 
-      # 3) Download the ViGEmBus driver installer (self-contained release)
+      # 3) Download the ViGEmBus driver installer (self-contained package)
       - name: Download ViGEmBus driver installer
         shell: pwsh
         run: |
@@ -75,18 +52,18 @@ jobs:
           Invoke-WebRequest -Uri $a.browser_download_url -OutFile "drivers\ViGEmBus_Setup.$ext"
           Write-Host "Downloaded $($a.name)"
 
-      # 4) Verify outputs
+      # 4) Verify the DLL was actually produced
       - name: Verify outputs
         shell: pwsh
         run: |
           if (-not (Test-Path .\TouchCloudPad.exe)) { throw "TouchCloudPad.exe missing" }
-          if (-not (Test-Path .\ViGEmClient.dll)) { throw "ViGEmClient.dll missing" }
+          if (-not (Test-Path .\ViGEmClient.dll)) { throw "ViGEmClient.dll missing - the ps1 did not produce it" }
           $b = [IO.File]::ReadAllBytes((Resolve-Path .\ViGEmClient.dll))
           $pe = [BitConverter]::ToInt32($b, 0x3C); $m = [BitConverter]::ToUInt16($b, $pe + 4)
           Write-Host "ViGEmClient.dll machine=0x$('{0:X4}' -f $m) size=$($b.Length) bytes"
 
       # 5) Package everything
-      - name: Package release
+      - name: Package
         shell: pwsh
         run: |
           $stage = Join-Path $env:RUNNER_TEMP 'stage'
@@ -98,14 +75,14 @@ jobs:
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath TouchCloudPad-release.zip -Force
           Get-Item TouchCloudPad-release.zip | Select-Object Name, Length
 
-      # 6) Upload artifact (always, so manual runs have a download)
+      # 6) Upload the package as an artifact (available on every run)
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TouchCloudPad-release
+          name: TouchCloudPad
           path: TouchCloudPad-release.zip
 
-      # 7) Publish GitHub Release (only on tags)
+      # 7) Publish a GitHub Release (only when pushing a v* tag)
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
