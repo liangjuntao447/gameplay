@@ -1,7 +1,7 @@
 # Builds the OFFICIAL ViGEmClient.dll from source and copies it to $OutDir.
-# $SourceDir should be a checkout of nefarius/ViGEmClient (the workflow fetches
-# it with actions/checkout to avoid git auth prompts). If $SourceDir is empty
-# it clones the public repo. vcpkg (microsoft) is only used as a fallback.
+# $SourceDir should be a checkout of nefarius/ViGEmClient (fetched with
+# actions/checkout). BUILD_SHARED_LIBS=ON forces a DLL (the default is a
+# static .lib, which we don't want). vcpkg (microsoft) is only a fallback.
 param(
     [string]$OutDir = '.',
     [string]$SourceDir = ''
@@ -23,18 +23,24 @@ if (-not $SourceDir -or -not (Test-Path $SourceDir)) {
 
 $dll = $null
 
-# --- Attempt 1: direct CMake build (ViGEmClient is a plain Windows library) ---
-Write-Host '=== Attempt 1: direct CMake build ==='
+# --- Attempt 1: direct CMake build, as a SHARED (DLL) library ---
+Write-Host '=== Attempt 1: direct CMake build (BUILD_SHARED_LIBS=ON) ==='
 try {
-    cmake -B (Join-Path $SourceDir 'build') -S $SourceDir -A x64
+    cmake -B (Join-Path $SourceDir 'build') -S $SourceDir -A x64 `
+        -DBUILD_SHARED_LIBS=ON -DCMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON
     cmake --build (Join-Path $SourceDir 'build') --config Release
     $dll = Get-ChildItem (Join-Path $SourceDir 'build') -Recurse -Filter 'ViGEmClient.dll' -ErrorAction SilentlyContinue |
         Select-Object -First 1
+    if (-not $dll) {
+        Write-Host 'No ViGEmClient.dll in attempt 1; listing what was built:'
+        Get-ChildItem (Join-Path $SourceDir 'build') -Recurse -Include '*.dll','*.lib','*.pdb' -ErrorAction SilentlyContinue |
+            ForEach-Object { Write-Host "  $($_.FullName)" }
+    }
 } catch { Write-Host "direct CMake failed: $($_.Exception.Message)" }
 
-# --- Attempt 2: build with microsoft/vcpkg toolchain (in case deps are needed) ---
+# --- Attempt 2: CMake + microsoft/vcpkg toolchain, also shared ---
 if (-not $dll) {
-    Write-Host '=== Attempt 2: CMake + microsoft/vcpkg toolchain ==='
+    Write-Host '=== Attempt 2: CMake + microsoft/vcpkg toolchain (BUILD_SHARED_LIBS=ON) ==='
     $vc = Join-Path $tmp 'vcpkg'
     if (-not (Test-Path (Join-Path $vc 'vcpkg.exe'))) {
         git clone --depth 1 https://github.com/microsoft/vcpkg.git $vc
@@ -42,13 +48,19 @@ if (-not $dll) {
         try { & .\bootstrap-vcpkg.bat } finally { Pop-Location }
     }
     cmake -B (Join-Path $SourceDir 'build2') -S $SourceDir -A x64 `
+        -DBUILD_SHARED_LIBS=ON -DCMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON `
         -DCMAKE_TOOLCHAIN_FILE="$vc\scripts\buildsystems\vcpkg.cmake"
     cmake --build (Join-Path $SourceDir 'build2') --config Release
     $dll = Get-ChildItem (Join-Path $SourceDir 'build2') -Recurse -Filter 'ViGEmClient.dll' -ErrorAction SilentlyContinue |
         Select-Object -First 1
+    if (-not $dll) {
+        Write-Host 'No ViGEmClient.dll in attempt 2; listing what was built:'
+        Get-ChildItem (Join-Path $SourceDir 'build2') -Recurse -Include '*.dll','*.lib','*.pdb' -ErrorAction SilentlyContinue |
+            ForEach-Object { Write-Host "  $($_.FullName)" }
+    }
 }
 
-if (-not $dll) { throw 'Could not build ViGEmClient.dll (both attempts failed).' }
+if (-not $dll) { throw 'Could not build ViGEmClient.dll (both attempts failed). See the built-file listing above.' }
 
 $dest = Join-Path $OutDir 'ViGEmClient.dll'
 Copy-Item $dll.FullName $dest -Force
