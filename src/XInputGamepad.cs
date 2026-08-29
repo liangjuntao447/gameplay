@@ -57,23 +57,23 @@ namespace TouchCloudPad
         public const ushort BTN_Y = 0x8000;
 
         // ---- ViGEmClient C API (official) ----
-        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern int vigem_alloc(out IntPtr c);
-        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern int vigem_connect(IntPtr c);
-        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern void vigem_disconnect(IntPtr c);
-        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern void vigem_free(IntPtr c);
-        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern int vigem_target_x360_alloc(out IntPtr t);
-        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern int vigem_target_add(IntPtr c, IntPtr t);
-        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern void vigem_target_remove(IntPtr c, IntPtr t);
-        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern void vigem_target_free(IntPtr t);
-        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern int vigem_target_x360_update(IntPtr c, IntPtr t, ref XUSB_REPORT r);
 
         public bool Available { get { return _ok; } }
@@ -118,7 +118,7 @@ namespace TouchCloudPad
                 Error = null;
                 return true;
             }
-            catch { Error = "加载 ViGEmClient.dll 异常"; return false; }
+            catch (Exception ex) { Error = "加载 ViGEmClient.dll 异常：" + ex.GetType().Name + " " + ex.Message; return false; }
         }
 
         private void Cleanup()

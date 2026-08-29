@@ -24,25 +24,42 @@ if (-not $SourceDir -or -not (Test-Path $SourceDir)) {
 $buildDir = Join-Path $SourceDir 'build'
 $out = Join-Path $OutDir 'ViGEmClient.dll'
 
+# --- helper: does a DLL actually export vigem_alloc? ---
+function Test-ViGEmExports($dllPath) {
+    try {
+        $out = (& dumpbin /exports $dllPath 2>&1 | Out-String)
+        return $out -match 'vigem_alloc'
+    } catch { return $false }
+}
+
 # --- primary: CMake with ViGEmClient_DLL=ON (builds a SHARED ViGEmClient.dll) ---
 Write-Host '=== CMake configure: -DViGEmClient_DLL=ON ==='
 cmake -B $buildDir -S $SourceDir -A x64 -DViGEmClient_DLL=ON 2>&1 | ForEach-Object { Write-Host "  $_" }
 cmake --build $buildDir --config Release 2>&1 | ForEach-Object { Write-Host "  $_" }
 
 $dll = Get-ChildItem $buildDir -Recurse -Filter 'ViGEmClient.dll' -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($dll -and -not (Test-ViGEmExports $dll.FullName)) {
+    Write-Host 'Default ViGEmClient.dll has NO vigem_alloc export -> trying ViGEmClientShared target'
+    $dll = $null
+}
 
-# --- fallback: the project also exposes a ViGEmClientShared target ---
+# --- fallback: the project also exposes a ViGEmClientShared target (has export config) ---
 if (-not $dll) {
     Write-Host '=== fallback: build ViGEmClientShared target ==='
     cmake --build $buildDir --config Release --target ViGEmClientShared 2>&1 | ForEach-Object { Write-Host "  $_" }
     $dll = Get-ChildItem $buildDir -Recurse -Filter 'ViGEmClientShared.dll' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($dll -and -not (Test-ViGEmExports $dll.FullName)) {
+        Write-Host 'ViGEmClientShared.dll also lacks vigem_alloc export'
+        $dll = $null
+    }
 }
 
 if (-not $dll) {
-    Write-Host '=== no DLL produced; what was built: ==='
+    Write-Host '=== no valid DLL produced; what was built: ==='
     Get-ChildItem $buildDir -Recurse -Include '*.dll','*.lib' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
-    throw 'Could not produce ViGEmClient.dll'
+    throw 'Could not produce a ViGEmClient.dll that exports vigem_alloc'
 }
 
 Copy-Item $dll.FullName $out -Force
 Write-Host "DLL built: $out (from $($dll.FullName))"
+Write-Host "exports vigem_alloc: $(Test-ViGEmExports $out)"
