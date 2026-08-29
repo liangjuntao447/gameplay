@@ -41,16 +41,24 @@ jobs:
         shell: cmd
         run: build.bat
 
-      # 3) Download the ViGEmBus driver installer (self-contained package)
+      # 3) Download the ViGEmBus driver installer (self-contained package).
+      #    Uses GITHUB_TOKEN to avoid anonymous API rate limits; non-fatal so a
+      #    transient rate-limit does not break the whole build/release.
       - name: Download ViGEmBus driver installer
         shell: pwsh
         run: |
-          $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/nefarius/ViGEmBus/releases/latest" -Headers @{ 'User-Agent'='TouchCloudPad' }
-          $a = $rel.assets | Where-Object { $_.name -match '\.(msi|exe)$' -and $_.name -notmatch 'arm' } | Select-Object -First 1
-          if (-not $a) { throw "No ViGEmBus installer asset found" }
-          $ext = $a.name.Substring($a.name.LastIndexOf('.') + 1)
-          Invoke-WebRequest -Uri $a.browser_download_url -OutFile "drivers\ViGEmBus_Setup.$ext"
-          Write-Host "Downloaded $($a.name)"
+          try {
+            $h = @{ 'User-Agent' = 'TouchCloudPad'; 'Authorization' = "Bearer $env:GITHUB_TOKEN" }
+            $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/nefarius/ViGEmBus/releases/latest" -Headers $h
+            $a = $rel.assets | Where-Object { $_.name -match '\.(msi|exe)$' -and $_.name -notmatch 'arm' } | Select-Object -First 1
+            if (-not $a) { throw "No ViGEmBus installer asset found" }
+            $ext = $a.name.Substring($a.name.LastIndexOf('.') + 1)
+            Invoke-WebRequest -Uri $a.browser_download_url -OutFile "drivers\ViGEmBus_Setup.$ext"
+            Write-Host "Downloaded $($a.name) -> drivers\ViGEmBus_Setup.$ext"
+          } catch {
+            Write-Host "::warning::Could not download ViGEmBus driver: $($_.Exception.Message)"
+            Write-Host "The driver is available manually at https://github.com/nefarius/ViGEmBus/releases/latest"
+          }
 
       # 4) Verify the DLL was actually produced
       - name: Verify outputs
