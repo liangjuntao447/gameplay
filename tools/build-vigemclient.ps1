@@ -1,7 +1,8 @@
 # Builds the OFFICIAL ViGEmClient.dll from source.
-# ViGEmClient's CMakeLists has: option(ViGEmClient_DLL ... OFF).
-# Setting -DViGEmClient_DLL=ON makes it build a SHARED library (ViGEmClient.dll)
-# instead of the default STATIC .lib. Falls back to the ViGEmClientShared target.
+# The default ViGEmClient target (with ViGEmClient_DLL=ON) produces a DLL with
+# NO exports. The ViGEmClientShared target produces a DLL with the export
+# configuration (its output is also named ViGEmClient.dll). So we build BOTH
+# and then pick whichever DLL actually exports vigem_alloc (verified via dumpbin).
 param(
     [string]$OutDir = '.',
     [string]$SourceDir = ''
@@ -24,7 +25,6 @@ if (-not $SourceDir -or -not (Test-Path $SourceDir)) {
 $buildDir = Join-Path $SourceDir 'build'
 $out = Join-Path $OutDir 'ViGEmClient.dll'
 
-# --- helper: does a DLL actually export vigem_alloc? ---
 function Test-ViGEmExports($dllPath) {
     try {
         $out = (& dumpbin /exports $dllPath 2>&1 | Out-String)
@@ -32,32 +32,27 @@ function Test-ViGEmExports($dllPath) {
     } catch { return $false }
 }
 
-# --- primary: CMake with ViGEmClient_DLL=ON (builds a SHARED ViGEmClient.dll) ---
+# --- configure + build BOTH targets ---
 Write-Host '=== CMake configure: -DViGEmClient_DLL=ON ==='
 cmake -B $buildDir -S $SourceDir -A x64 -DViGEmClient_DLL=ON 2>&1 | ForEach-Object { Write-Host "  $_" }
+
+Write-Host '=== build default ViGEmClient target ==='
 cmake --build $buildDir --config Release 2>&1 | ForEach-Object { Write-Host "  $_" }
 
-$dll = Get-ChildItem $buildDir -Recurse -Filter 'ViGEmClient.dll' -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($dll -and -not (Test-ViGEmExports $dll.FullName)) {
-    Write-Host 'Default ViGEmClient.dll has NO vigem_alloc export -> trying ViGEmClientShared target'
-    $dll = $null
-}
+Write-Host '=== build ViGEmClientShared target (has export config) ==='
+cmake --build $buildDir --config Release --target ViGEmClientShared 2>&1 | ForEach-Object { Write-Host "  $_" }
 
-# --- fallback: the project also exposes a ViGEmClientShared target (has export config) ---
-if (-not $dll) {
-    Write-Host '=== fallback: build ViGEmClientShared target ==='
-    cmake --build $buildDir --config Release --target ViGEmClientShared 2>&1 | ForEach-Object { Write-Host "  $_" }
-    $dll = Get-ChildItem $buildDir -Recurse -Filter 'ViGEmClientShared.dll' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($dll -and -not (Test-ViGEmExports $dll.FullName)) {
-        Write-Host 'ViGEmClientShared.dll also lacks vigem_alloc export'
-        $dll = $null
-    }
+# --- pick any DLL that actually exports vigem_alloc ---
+Write-Host '=== scanning for a DLL that exports vigem_alloc ==='
+$dll = $null
+Get-ChildItem $buildDir -Recurse -Filter '*.dll' -ErrorAction SilentlyContinue | ForEach-Object {
+    if (-not $dll -and (Test-ViGEmExports $_.FullName)) { $dll = $_ }
 }
 
 if (-not $dll) {
-    Write-Host '=== no valid DLL produced; what was built: ==='
+    Write-Host '=== no DLL with vigem_alloc export; what was built: ==='
     Get-ChildItem $buildDir -Recurse -Include '*.dll','*.lib' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
-    throw 'Could not produce a ViGEmClient.dll that exports vigem_alloc'
+    throw 'No ViGEmClient DLL with a vigem_alloc export was produced.'
 }
 
 Copy-Item $dll.FullName $out -Force
