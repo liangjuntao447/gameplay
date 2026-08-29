@@ -6,27 +6,26 @@ namespace TouchCloudPad
 {
     /// <summary>
     /// Outputs a virtual Xbox 360 controller (XInput) through the ViGEmBus
-    /// kernel driver. This is the standard, broadly supported way to appear as
-    /// a real gamepad to PC apps and cloud-game clients.
+    /// kernel driver.
     ///
-    /// Two pieces are needed:
-    ///   1. The ViGEmBus DRIVER (install it once; the app checks the service).
-    ///   2. The official ViGEmClient.dll, built from source (the GitHub repo is
-    ///      source-only; you compile it with CMake/vcpkg, then put the x64
-    ///      ViGEmClient.dll next to TouchCloudPad.exe — the app finds it here
-    ///      or in System32).
-    /// The driver install does NOT ship ViGEmClient.dll, so this app never
-    /// downloads it: it just loads the compiled DLL the user provides.
+    /// Uses the OFFICIAL ViGEmClient API (verified against Client.h):
+    ///   vigem_alloc() and vigem_target_x360_alloc() RETURN handles (no out
+    ///   param), and the success sentinel is VIGEM_ERROR_NONE = 0x20000000
+    ///   (not 0). vigem_target_x360_update takes the XUSB_REPORT by value.
+    ///
+    /// Needs the ViGEmBus driver installed + the official ViGEmClient.dll next
+    /// to the exe (or in System32).
     /// </summary>
     public class XInputGamepad : IDisposable
     {
         private const string DLL = "ViGEmClient.dll";
+        private const int VIGEM_ERROR_NONE = 0x20000000; // success sentinel
+
         private IntPtr _client = IntPtr.Zero;
         private IntPtr _target = IntPtr.Zero;
         private bool _ok;
         private XUSB_REPORT _rep;
 
-        // ---- XUSB (XInput) report, exactly 12 bytes ----
         [StructLayout(LayoutKind.Sequential)]
         private struct XUSB_REPORT
         {
@@ -39,7 +38,7 @@ namespace TouchCloudPad
             public short sThumbRY;
         }
 
-        // ---- XInput button bitmask ----
+        // ---- XInput button bitmask (matches Common.h) ----
         public const ushort BTN_DPAD_UP = 0x0001;
         public const ushort BTN_DPAD_DOWN = 0x0002;
         public const ushort BTN_DPAD_LEFT = 0x0004;
@@ -58,7 +57,7 @@ namespace TouchCloudPad
 
         // ---- ViGEmClient C API (official) ----
         [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
-        private static extern int vigem_alloc(out IntPtr c);
+        private static extern IntPtr vigem_alloc();
         [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern int vigem_connect(IntPtr c);
         [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
@@ -66,7 +65,7 @@ namespace TouchCloudPad
         [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern void vigem_free(IntPtr c);
         [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
-        private static extern int vigem_target_x360_alloc(out IntPtr t);
+        private static extern IntPtr vigem_target_x360_alloc();
         [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern int vigem_target_add(IntPtr c, IntPtr t);
         [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
@@ -74,7 +73,7 @@ namespace TouchCloudPad
         [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
         private static extern void vigem_target_free(IntPtr t);
         [DllImport(DLL, CallingConvention = CallingConvention.Winapi)]
-        private static extern int vigem_target_x360_update(IntPtr c, IntPtr t, ref XUSB_REPORT r);
+        private static extern int vigem_target_x360_update(IntPtr c, IntPtr t, XUSB_REPORT report);
 
         public bool Available { get { return _ok; } }
 
@@ -107,18 +106,36 @@ namespace TouchCloudPad
             {
                 if (FindClientDll() == null)
                 {
-                    Error = "缺少 ViGEmClient.dll：请把用官方源码(CMake/vcpkg)编译好的 x64 ViGEmClient.dll 放到 TouchCloudPad.exe 旁";
+                    Error = "缺少 ViGEmClient.dll（请把它放到 TouchCloudPad.exe 旁）";
                     return false;
                 }
-                if (vigem_alloc(out _client) != 0) { Error = "ViGEm 初始化失败（请确认是官方源码编译版 x64）"; return false; }
-                if (vigem_connect(_client) != 0) { Error = "ViGEmBus 驱动未安装或未加载"; return false; }
-                if (vigem_target_x360_alloc(out _target) != 0) { Error = "创建虚拟手柄失败"; return false; }
-                if (vigem_target_add(_client, _target) != 0) { Error = "添加虚拟手柄失败"; return false; }
+                _client = vigem_alloc();
+                if (_client == IntPtr.Zero) { Error = "vigem_alloc 失败"; return false; }
+
+                if (vigem_connect(_client) != VIGEM_ERROR_NONE)
+                {
+                    Error = "vigem_connect 失败（ViGEmBus 驱动未就绪）";
+                    return false;
+                }
+
+                _target = vigem_target_x360_alloc();
+                if (_target == IntPtr.Zero) { Error = "vigem_target_x360_alloc 失败"; return false; }
+
+                if (vigem_target_add(_client, _target) != VIGEM_ERROR_NONE)
+                {
+                    Error = "vigem_target_add 失败";
+                    return false;
+                }
+
                 _ok = true;
                 Error = null;
                 return true;
             }
-            catch (Exception ex) { Error = "加载 ViGEmClient.dll 异常：" + ex.GetType().Name + " " + ex.Message; return false; }
+            catch (Exception ex)
+            {
+                Error = "加载 ViGEmClient.dll 异常：" + ex.GetType().Name + " " + ex.Message;
+                return false;
+            }
         }
 
         private void Cleanup()
@@ -152,7 +169,7 @@ namespace TouchCloudPad
         public void Update()
         {
             if (!_ok) return;
-            vigem_target_x360_update(_client, _target, ref _rep);
+            vigem_target_x360_update(_client, _target, _rep);
         }
 
         public void Reset()
@@ -163,7 +180,12 @@ namespace TouchCloudPad
 
         public void Dispose()
         {
-            if (_ok) { try { vigem_target_x360_update(_client, _target, ref _rep); } catch { } Cleanup(); _ok = false; }
+            if (_ok)
+            {
+                try { vigem_target_x360_update(_client, _target, _rep); } catch { }
+                Cleanup();
+                _ok = false;
+            }
         }
     }
 

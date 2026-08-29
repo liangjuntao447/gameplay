@@ -23,7 +23,7 @@ cd /d "%~dp0"
 
 echo Compiling TouchCloudPad.exe ...
 
-"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ ^
+"%CSC%" /nologo /target:winexe /platform:x64 /optimize+ ^
   /r:System.dll ^
   /r:System.Core.dll ^
   /r:System.Xml.dll ^
