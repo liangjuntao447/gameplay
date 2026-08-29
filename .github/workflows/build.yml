@@ -1,0 +1,83 @@
+name: Build & Release
+
+# Triggers: on a version tag (v1.0.0) it builds and publishes a GitHub
+# Release; you can also run it manually from the Actions tab.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # C++ toolchain needed to compile ViGEmClient from source.
+      - name: Set up MSVC (C++ build tools)
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # 1) Build the OFFICIAL ViGEmClient.dll from source (vcpkg -> CMake fallback)
+      - name: Build ViGEmClient.dll from source
+        shell: pwsh
+        run: .\tools\build-vigemclient.ps1 -OutDir (Get-Location)
+
+      # 2) Build TouchCloudPad.exe (C# .NET Framework 4.8, system csc.exe)
+      - name: Build TouchCloudPad.exe
+        shell: cmd
+        run: build.bat
+
+      # 3) Download the ViGEmBus driver installer so the release is self-contained
+      - name: Download ViGEmBus driver installer
+        shell: pwsh
+        run: |
+          $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/nefarius/ViGEmBus/releases/latest" -Headers @{ 'User-Agent'='TouchCloudPad' }
+          $a = $rel.assets | Where-Object { $_.name -match '\.(msi|exe)$' -and $_.name -notmatch 'arm' } | Select-Object -First 1
+          if (-not $a) { throw "No ViGEmBus installer asset found" }
+          $ext = $a.name.Substring($a.name.LastIndexOf('.')+1)
+          Invoke-WebRequest -Uri $a.browser_download_url -OutFile "drivers\ViGEmBus_Setup.$ext"
+          Write-Host "Downloaded $($a.name) -> drivers\ViGEmBus_Setup.$ext"
+
+      # 4) Verify outputs
+      - name: Verify outputs
+        shell: pwsh
+        run: |
+          if (-not (Test-Path .\TouchCloudPad.exe)) { throw "TouchCloudPad.exe missing" }
+          if (-not (Test-Path .\ViGEmClient.dll)) { throw "ViGEmClient.dll missing" }
+          $b = [IO.File]::ReadAllBytes((Resolve-Path .\ViGEmClient.dll))
+          $pe = [BitConverter]::ToInt32($b, 0x3C); $m = [BitConverter]::ToUInt16($b, $pe + 4)
+          Write-Host "ViGEmClient.dll machine=0x$('{0:X4}' -f $m) size=$($b.Length) bytes"
+
+      # 5) Package everything into one zip
+      - name: Package release
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'stage'
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          Copy-Item .\TouchCloudPad.exe, .\ViGEmClient.dll, .\README.md -Destination $stage -Force
+          New-Item -ItemType Directory -Path (Join-Path $stage 'drivers') -Force | Out-Null
+          Copy-Item .\drivers\* -Destination (Join-Path $stage 'drivers') -Recurse -Force
+          Copy-Item .\build.bat -Destination $stage -Force
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath TouchCloudPad-release.zip -Force
+          Get-Item TouchCloudPad-release.zip | Select-Object Name, Length
+
+      # 6) Upload as a build artifact (always)
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TouchCloudPad
+          path: TouchCloudPad-release.zip
+
+      # 7) Publish a GitHub Release (only when pushed with a v* tag)
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: TouchCloudPad-release.zip
+          generate_release_notes: true

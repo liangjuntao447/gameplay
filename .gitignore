@@ -1,0 +1,15 @@
+# Build outputs / runtime artifacts (produced by GitHub Actions, not committed)
+*.exe
+*.dll
+*.pdb
+config.json
+crash.log
+
+# vcpkg / build caches
+vcpkg/
+installed/
+build/
+
+# OS / editor junk
+Thumbs.db
+.DS_Store
